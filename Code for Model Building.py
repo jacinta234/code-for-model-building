@@ -79,6 +79,7 @@ common_labeled = common.intersection(subtypes.index)
 
 rppa   = rppa.loc[common_labeled]
 rnaseq = rnaseq.loc[common_labeled]
+clin   = clin.loc[common_labeled]
 labels_str = subtypes.loc[common_labeled]
 
 from sklearn.preprocessing import LabelEncoder
@@ -145,8 +146,7 @@ except ImportError:
 # In practice, check clinical metadata for a 'plate' or 'batch' column
 import numpy as np
 
-# Example: assign batches from clinical metadata if available
-# If no explicit batch info, skip this step
+# Example: assign batches from clinical metadata if available.
 if has_pycombat and "batch" in clin.columns:
     batch = clin.loc[rppa_norm.index, "batch"]
     rppa_corrected = pd.DataFrame(
@@ -235,7 +235,7 @@ class MultiOmicsAE(nn.Module):
         self.joint = nn.Sequential(
             nn.Linear(256 + 64, latent_dim), nn.ReLU()
         )
-        # Shared decoder reconstructs both modalities
+        # Shared decoder to reconstruct both modalities
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, 512), nn.ReLU(),
             nn.Linear(512, rna_dim + rppa_dim)
@@ -372,7 +372,30 @@ with torch.no_grad():
 np.save("data/embeddings/latent_vae.npy", latent_vae)
 print("VAE embeddings saved:", latent_vae.shape)
 
-#3.5 Supervised Classification on Latent Representations - attaching a small neural network classifier to the latent embeddings learned by the autoencoder and variational autoencoder. The classifier is trained to predict PAM50 subtypes from the compressed representations, allowing us to evaluate how well the latent space captures relevant biological information for classification tasks.
+
+#3.5 Plotting the training of VAE and AE 
+import matplotlib.pyplot as plt
+
+epochs = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]
+ae_loss  = [1.1267, 0.5307, 0.4272, 0.3690, 0.3281, 0.3000, 0.2721, 0.2491, 0.2327, 0.2158]
+vae_loss = [1.1871, 0.7800, 0.7153, 0.6842, 0.6601, 0.6401, 0.6220, 0.5969, 0.5786, 0.5594]
+
+fig, ax = plt.subplots(figsize=(9, 5))
+ax.plot(epochs, ae_loss, marker='o', label="AE (reconstruction loss)", color="#2a78d6")
+ax.plot(epochs, vae_loss, marker='o', label="VAE (reconstruction + KL loss)", color="#D85A30")
+
+ax.set_xlabel("Epoch")
+ax.set_ylabel("Loss")
+ax.set_title("Training convergence: AE vs VAE")
+ax.legend(frameon=False)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+
+plt.tight_layout()
+plt.savefig("figures/loss_curves_coarse.png", dpi=180, bbox_inches="tight")
+plt.show() 
+
+#3.6 Supervised Classification on Latent Representations - attaching a small neural network classifier to the latent embeddings learned by the autoencoder and variational autoencoder. The classifier is trained to predict PAM50 subtypes from the compressed representations, allowing us to evaluate how well the latent space captures relevant biological information for classification tasks.
 
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import StratifiedKFold, cross_validate
@@ -478,27 +501,8 @@ plt.savefig("figures/umap.png", dpi=150)
 # plt.show()  # Commented to avoid display issues
 
 # Step 5 - Analysis and Interpretation - to interpret the results of the clustering and classification analyses. This step involves examining the relationships between the identified clusters, the PAM50 subtypes, and other clinical variables. It may also include identifying key features that contribute to the separation of clusters or subtypes, as well as exploring potential biological insights derived from the multi-omics data integration.
-# 5.1 Results Comparison Table - to summarize the performance metrics of the various models and clustering methods. This table provides a clear overview of how each approach performed in terms of accuracy, F1 score, balanced accuracy, and other relevant metrics, allowing for easy comparison and identification of the best-performing methods.
-import pandas as pd
 
-# Build results dict from cross_validate outputs (run after all CV steps)
-all_results = {
-    "SVM (RNA-seq)":          results["SVM (RNA-seq)"],
-    "SVM (RPPA)":             results["SVM (RPPA)"],
-    "RF (RNA-seq)":           results["Random Forest (RNA-seq)"],
-    "RF (RPPA)":              results["Random Forest (RPPA)"],
-    "AE multi-omics":         ae_cv_results,
-    "VAE multi-omics":        vae_cv_results,
-}
-
-df_results = pd.DataFrame(all_results).T
-df_results.columns = ["Accuracy", "F1 (macro)", "Balanced Acc"]
-df_results = df_results.round(3)
-
-print(df_results.to_string())
-df_results.to_csv("data/results/performance_table.csv")
-
-# 5.2 SHAP explainability to identify which features (genes/proteins) are most influential in the models predictions. This will determine which genes/proteins significantly drive subtype predictions.
+# 5.1 SHAP explainability to identify which features (genes/proteins) are most influential in the models predictions. This will determine which genes/proteins significantly drive subtype predictions.
 import shap
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
@@ -530,94 +534,147 @@ plt.tight_layout()
 plt.savefig("figures/shap_summary.png", dpi=150, bbox_inches="tight")
 # plt.show()  # Commented to avoid display issues
 
-# Top 20 features per subtype
+import shap
+from sklearn.ensemble import RandomForestClassifier
+
+X_combined = np.hstack([rnaseq_filtered.values, rppa_norm.values])
+feature_names = list(rnaseq_filtered.columns) + list(rppa_norm.columns)
+
+rf = RandomForestClassifier(n_estimators=300, max_depth=10, random_state=42, n_jobs=-1)
+rf.fit(X_combined, labels)
+
+explainer = shap.TreeExplainer(rf)
+shap_values = explainer.shap_values(X_combined)  # shape: (694, 3131, 5)
+
 for i, subtype in enumerate(le.classes_):
-    imp = np.abs(shap_values[i]).mean(axis=0)
+    importance = np.abs(shap_values[:,:,i]).mean(axis=0)
+    top20 = np.argsort(importance)[::-1][:20]
+    print(subtype, [feature_names[j] for j in top20])
+
+
+# Top 20 features per subtype 
+rows = []
+for i, subtype in enumerate(le.classes_):
+    imp = np.abs(shap_values[:,:,i]).mean(axis=0)
     top20 = pd.Series(imp, index=feature_names).nlargest(20)
     print(f"\nTop 20 features for {subtype}:")
     print(top20.to_string())
+    for feat, val in top20.items():
+        rows.append({"subtype": subtype, "feature": feat, "mean_abs_shap": val})
+
+pd.DataFrame(rows).to_csv("data/results/shap_top20_per_subtype.csv", index=False)
+
+
 
 # 5.3 Survival Analysis - to assess the clinical relevance of the identified clusters and subtypes. This involves analyzing patient survival data in relation to the clusters derived from the multi-omics integration, providing insights into potential prognostic implications of the discovered patterns.
 # Kaplan-Meier survival curves are generated for each cluster, and statistical tests (e.g., log-rank test) are performed to evaluate differences in survival distributions between clusters. This analysis helps determine whether the identified clusters have distinct survival outcomes, which can inform clinical decision-making and potential therapeutic strategies.
+
 
 from lifelines import KaplanMeierFitter
 from lifelines.statistics import multivariate_logrank_test
 import matplotlib.pyplot as plt
 
-# Extract survival data from clinical metadata
-# Column names may vary - inspect clin.columns for the right fields
-duration_col = "days_to_death"       # or 'OS.time'
-event_col    = "vital_status"        # 1=died, 0=alive
+# Correct column names, verified against actual clinical.tsv
+surv = clin[['OS_Time_nature2012', 'OS_event_nature2012']].copy()
+surv.columns = ['time', 'event']
+valid = surv.notna().all(axis=1).values
 
-# Keep only samples with survival data
-surv = clin.loc[rnaseq_filtered.index, [duration_col, event_col]].dropna()
-surv_idx = surv.index
+T = surv['time'][valid].values
+E = surv['event'][valid].values
+labels_valid = labels[valid]
+clusters_valid = cluster_labels[valid]  # K-means assignments
 
-T = surv[duration_col].astype(float)
-E = (surv[event_col] == "Dead").astype(int)
-
-kmf = KaplanMeierFitter()
 colors = ["#1D9E75","#D85A30","#7F77DD","#BA7517","#D4537E"]
+kmf = KaplanMeierFitter()
 
-fig, ax = plt.subplots(figsize=(9, 6))
+fig, axes = plt.subplots(1, 2, figsize=(15, 6))
 
+# Panel 1: true PAM50 subtype
+ax = axes[0]
 for i, subtype in enumerate(le.classes_):
-    mask = (labels[pd.Index(rnaseq_filtered.index).isin(surv_idx)]) == i
-    if mask.sum() < 10:
-        continue
-    kmf.fit(T[mask], event_observed=E[mask], label=subtype)
-    kmf.plot_survival_function(ax=ax, ci_show=True, color=colors[i])
+    mask = labels_valid == i
+    if mask.sum() < 5: continue
+    kmf.fit(T[mask], event_observed=E[mask], label=f"{subtype} (n={mask.sum()})")
+    kmf.plot_survival_function(ax=ax, ci_show=False, color=colors[i])
+lr_true = multivariate_logrank_test(T, labels_valid, E)
+ax.set_title(f"KM by true PAM50 subtype (log-rank p={lr_true.p_value:.4f})")
+ax.set_xlabel("Days"); ax.set_ylabel("Survival probability")
 
-# Log-rank test across all groups
-results_lr = multivariate_logrank_test(T, labels[pd.Index(rnaseq_filtered.index).isin(surv_idx)], E)
-ax.set_title(f"Kaplan-Meier curves by PAM50 subtype  (log-rank p={results_lr.p_value:.4f})")
-ax.set_xlabel("Days")
-ax.set_ylabel("Survival probability")
+# Panel 2: K-means clusters
+ax = axes[1]
+for c in range(5):
+    mask = clusters_valid == c
+    if mask.sum() < 5: continue
+    kmf.fit(T[mask], event_observed=E[mask], label=f"Cluster {c} (n={mask.sum()})")
+    kmf.plot_survival_function(ax=ax, ci_show=False, color=colors[c])
+lr_cluster = multivariate_logrank_test(T, clusters_valid, E)
+ax.set_title(f"KM by K-means cluster (log-rank p={lr_cluster.p_value:.4f})")
+ax.set_xlabel("Days"); ax.set_ylabel("Survival probability")
+
 plt.tight_layout()
-plt.savefig("figures/kaplan_meier.png", dpi=150)
+plt.savefig("figures/kaplan_meier_curves.png", dpi=180, bbox_inches="tight")
+plt.show()
+
+print(f"True PAM50: p={lr_true.p_value:.4f}")
+print(f"K-means cluster: p={lr_cluster.p_value:.4f}")
 # plt.show()  # Commented to avoid display issues
 
 # 5.5 An ablation study to evaluate the contribution of each omics modality to the overall model performance. This involves systematically removing one modality at a time and retraining the model to observe changes in performance metrics. The results of this study can provide insights into the relative importance of each omics layer in predicting breast cancer subtypes and inform future multi-omics integration strategies.
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate
+from sklearn.metrics import make_scorer, balanced_accuracy_score
+from sklearn.neural_network import MLPClassifier   # <-- add this import
+import pandas as pd
 
-clf = MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=300, random_state=42)
+clf = MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=300, random_state=42)  # <-- define locally
+
+scorers = {
+    "accuracy": "accuracy",
+    "f1_macro": "f1_macro",
+    "balanced_acc": make_scorer(balanced_accuracy_score),
+}
+
+ablation_results = {}
+conditions = {
+    "RNA-seq only": rnaseq_filtered.values,
+    "RPPA only": rppa_corrected.values,
+    "Naive concatenation": np.hstack([rnaseq_filtered.values, rppa_corrected.values]),
+    "AE (multi-omics)": latent_ae,
+    "VAE (multi-omics)": latent_vae,
+}
+
+for name, X in conditions.items():
+    cv = cross_validate(clf, X, labels, cv=skf, scoring=scorers, n_jobs=-1)
+    ablation_results[name] = {
+        "accuracy":     cv["test_accuracy"].mean(),
+        "f1_macro":     cv["test_f1_macro"].mean(),
+        "balanced_acc": cv["test_balanced_acc"].mean(),
+        "f1_macro_std": cv["test_f1_macro"].std(),
+    }
+
+df_ablation = pd.DataFrame(ablation_results).T.round(3)
+print(df_ablation)
+df_ablation.to_csv("data/results/ablation_study.csv")
+
+
+#5.6 Confusion Matrix 
+import matplotlib.pyplot as plt
+from sklearn.model_selection import cross_val_predict, StratifiedKFold
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
+
 skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+y_pred = cross_val_predict(rf, X_combined, labels, cv=skf, n_jobs=-1)
+cm = confusion_matrix(labels, y_pred)
 
-ablation = {}
+print(classification_report(labels, y_pred, target_names=le.classes_))
 
-# Condition 1: RNA-seq only
-ablation["RNA-seq only"] = cross_val_score(
-    clf, rnaseq_filtered.values, labels, cv=skf, scoring="f1_macro"
-).mean()
-
-# Condition 2: RPPA only
-ablation["RPPA only"] = cross_val_score(
-    clf, rppa_corrected.values, labels, cv=skf, scoring="f1_macro"
-).mean()
-
-# Condition 3: Naive concatenation
-X_concat = np.hstack([rnaseq_filtered.values, rppa_corrected.values])
-ablation["Naive concatenation"] = cross_val_score(
-    clf, X_concat, labels, cv=skf, scoring="f1_macro"
-).mean()
-
-# Condition 4: AE multi-omics latent space
-ablation["AE (multi-omics)"] = cross_val_score(
-    clf, latent_ae, labels, cv=skf, scoring="f1_macro"
-).mean()
-
-# Condition 5: VAE multi-omics latent space
-ablation["VAE (multi-omics)"] = cross_val_score(
-    clf, latent_vae, labels, cv=skf, scoring="f1_macro"
-).mean()
-
-print("\nAblation study — F1 macro:")
-for k, v in ablation.items():
-    bar = "█" * int(v * 40)
-    print(f"  {k:<25} {v:.3f}  {bar}")
-
-
+fig, ax = plt.subplots(figsize=(7, 6))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=le.classes_)
+disp.plot(ax=ax, cmap='Blues', colorbar=True, values_format='d')
+ax.set_title('Cross-validated confusion matrix\nRandom Forest (RNA-seq + RPPA combined)')
+plt.tight_layout()
+plt.savefig("figures/confusion_matrix.png", dpi=180, bbox_inches="tight")
+plt.show()
+df_ablation.to_csv("data/results/ablation_study.csv")
 
 #Step 6 Reproducability - All results and figures must be saved for reproducibility and further analysis. This includes saving processed datasets, model embeddings, performance metrics, clustering assignments, and visualizations. By organizing and storing these outputs, we ensure that the analysis can be revisited, validated, and extended in future research. The seeding function ensures that every time the code is run, identical results are produced.
 import random, os, numpy as np, torch
@@ -632,6 +689,26 @@ def set_seeds(seed=42):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark     = False
     print(f"All seeds set to {seed}")
+
+# 5.7 Results Comparison Table - to summarize the performance metrics of the various models and clustering methods. This table provides a clear overview of how each approach performed in terms of accuracy, F1 score, balanced accuracy, and other relevant metrics, allowing for easy comparison and identification of the best-performing methods.
+import pandas as pd
+
+# Build results dict from cross_validate outputs (after all CV steps)
+all_results = {
+    "SVM (RNA-seq)":          results["SVM (RNA-seq)"],
+    "SVM (RPPA)":             results["SVM (RPPA)"],
+    "RF (RNA-seq)":           results["Random Forest (RNA-seq)"],
+    "RF (RPPA)":              results["Random Forest (RPPA)"],
+    "AE multi-omics":         "ae_cv_results",
+    "VAE multi-omics":        "vae_cv_results",
+}
+
+df_results = pd.DataFrame(all_results).T
+df_results.columns = ["Accuracy", "F1 (macro)", "Balanced Acc"]
+df_results = df_results.round(3)
+
+print(df_results.to_string())
+df_results.to_csv("data/results/performance_table.csv")
 
 # Call at the top of every script:
 set_seeds(42)

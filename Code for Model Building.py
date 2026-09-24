@@ -676,6 +676,88 @@ plt.savefig("figures/confusion_matrix.png", dpi=180, bbox_inches="tight")
 plt.show()
 df_ablation.to_csv("data/results/ablation_study.csv")
 
+#5.6 - One-vs-Rest Plots and ROC Curves
+# To visualize the performance of the multi-class classification models. These matrices provide insights into how well each class (subtype) is predicted, highlighting areas where the model may be misclassifying samples. By examining these matrices, we can identify specific subtypes that may require further investigation or model refinement.
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import cross_val_predict
+
+rf_baseline = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
+rf_baseline.fit(X_combined, labels)
+
+y_proba = cross_val_predict(
+    rf_baseline, X_combined, labels,
+    cv=skf, n_jobs=-1, method="predict_proba"
+)
+# y_proba shape: (694, 5) — one probability column per PAM50 subtype
+
+from sklearn.preprocessing import label_binarize
+import numpy as np
+
+n_classes = len(le.classes_)
+y_true_bin = label_binarize(labels, classes=np.arange(n_classes))
+# y_true_bin shape: (694, 5) — one-hot encoded true labels
+
+from sklearn.metrics import roc_curve, auc
+
+fpr, tpr, roc_auc = {}, {}, {}
+
+for i in range(n_classes):
+    fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], y_proba[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+for i, subtype in enumerate(le.classes_):
+    print(f"{subtype}: AUC = {roc_auc[i]:.3f}")
+
+import matplotlib.pyplot as plt
+
+colors = ["#1D9E75","#D85A30","#7F77DD","#BA7517","#D4537E"]  # matches your existing palette
+
+fig, ax = plt.subplots(figsize=(7, 6))
+
+for i, subtype in enumerate(le.classes_):
+    ax.plot(fpr[i], tpr[i], color=colors[i], lw=2,
+            label=f"{subtype} (AUC = {roc_auc[i]:.3f})")
+
+ax.plot([0, 1], [0, 1], linestyle="--", color="grey", lw=1)  # chance line
+ax.set_xlabel("False Positive Rate")
+ax.set_ylabel("True Positive Rate")
+ax.set_title("One-vs-Rest ROC Curves — Random Forest (RNA-seq + RPPA combined)")
+ax.legend(loc="lower right", fontsize=9)
+plt.tight_layout()
+plt.savefig("figures/roc_ovr.png", dpi=180, bbox_inches="tight")
+plt.savefig("ROC_AUC.png", dpi=300, bbox_inches="tight")
+plt.close()
+
+
+all_fpr = np.unique(np.concatenate([fpr[i] for i in range(n_classes)]))
+mean_tpr = np.zeros_like(all_fpr)
+
+for i in range(n_classes):
+    mean_tpr += np.interp(all_fpr, fpr[i], tpr[i])
+
+mean_tpr /= n_classes
+
+macro_auc = auc(all_fpr, mean_tpr)
+print(f"Macro-average AUC = {macro_auc:.3f}")
+
+fig, ax = plt.subplots(figsize=(6, 6))
+
+ax.plot(all_fpr, mean_tpr, color="#2a78d6", lw=2.5,
+        label=f"Macro-average ROC (AUC = {macro_auc:.3f})")
+ax.plot([0, 1], [0, 1], linestyle="--", color="grey", lw=1)
+
+ax.set_xlabel("False Positive Rate")
+ax.set_ylabel("True Positive Rate")
+ax.set_title("Macro-Average ROC Curve — Random Forest (RNA-seq + RPPA combined)")
+ax.legend(loc="lower right")
+plt.tight_layout()
+plt.savefig("figures/roc_macro.png", dpi=300, bbox_inches="tight")
+plt.close()
+
 #Step 6 Reproducability - All results and figures must be saved for reproducibility and further analysis. This includes saving processed datasets, model embeddings, performance metrics, clustering assignments, and visualizations. By organizing and storing these outputs, we ensure that the analysis can be revisited, validated, and extended in future research. The seeding function ensures that every time the code is run, identical results are produced.
 import random, os, numpy as np, torch
 

@@ -215,7 +215,7 @@ for mod_name, X in [("RNA-seq", rnaseq_filtered.values),
         }
         print(f"{key}: acc={results[key]['accuracy']:.3f}, f1={results[key]['f1_macro']:.3f}")
 
-        #3.2 Multi-Omics Integration - Concatenate features from both modalities and train the same classifiers on the combined dataset. A Multi-Omics Autoencoder is a neural network architecture designed to learn a compressed representation of multi-omics data. It consists of an encoder that maps the input data to a lower-dimensional latent space and a decoder that reconstructs the original data from this latent representation. The autoencoder is trained to minimize the reconstruction error, allowing it to capture the underlying structure and relationships between different omics modalities.
+#3.2 Multi-Omics Integration - Concatenate features from both modalities and train the same classifiers on the combined dataset. A Multi-Omics Autoencoder is a neural network architecture designed to learn a compressed representation of multi-omics data. It consists of an encoder that maps the input data to a lower-dimensional latent space and a decoder that reconstructs the original data from this latent representation. The autoencoder is trained to minimize the reconstruction error, allowing it to capture the underlying structure and relationships between different omics modalities.
 import torch
 import torch.nn as nn
 
@@ -467,7 +467,7 @@ plt.tight_layout()
 plt.savefig("figures/dendrogram.png", dpi=150)
 # plt.show()  # Commented to avoid display issues
 
-# 4.3 UMAP Visualization - to project the high-dimensional latent representations into a 2D space for visualization. UMAP (Uniform Manifold Approximation and Projection) is a non-linear dimensionality reduction technique that preserves both local and global structure, making it suitable for visualizing complex multi-omics data.
+# 4.2 UMAP Visualization - to project the high-dimensional latent representations into a 2D space for visualization. UMAP (Uniform Manifold Approximation and Projection) is a non-linear dimensionality reduction technique that preserves both local and global structure, making it suitable for visualizing complex multi-omics data.
 import umap
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -566,7 +566,7 @@ pd.DataFrame(rows).to_csv("data/results/shap_top20_per_subtype.csv", index=False
 
 
 
-# 5.3 Survival Analysis - to assess the clinical relevance of the identified clusters and subtypes. This involves analyzing patient survival data in relation to the clusters derived from the multi-omics integration, providing insights into potential prognostic implications of the discovered patterns.
+# 5.2 Survival Analysis - to assess the clinical relevance of the identified clusters and subtypes. This involves analyzing patient survival data in relation to the clusters derived from the multi-omics integration, providing insights into potential prognostic implications of the discovered patterns.
 # Kaplan-Meier survival curves are generated for each cluster, and statistical tests (e.g., log-rank test) are performed to evaluate differences in survival distributions between clusters. This analysis helps determine whether the identified clusters have distinct survival outcomes, which can inform clinical decision-making and potential therapeutic strategies.
 
 
@@ -619,7 +619,7 @@ print(f"True PAM50: p={lr_true.p_value:.4f}")
 print(f"K-means cluster: p={lr_cluster.p_value:.4f}")
 # plt.show()  # Commented to avoid display issues
 
-# 5.5 An ablation study to evaluate the contribution of each omics modality to the overall model performance. This involves systematically removing one modality at a time and retraining the model to observe changes in performance metrics. The results of this study can provide insights into the relative importance of each omics layer in predicting breast cancer subtypes and inform future multi-omics integration strategies.
+# 5.3 An ablation study to evaluate the contribution of each omics modality to the overall model performance. This involves systematically removing one modality at a time and retraining the model to observe changes in performance metrics. The results of this study can provide insights into the relative importance of each omics layer in predicting breast cancer subtypes and inform future multi-omics integration strategies.
 from sklearn.model_selection import cross_validate
 from sklearn.metrics import make_scorer, balanced_accuracy_score
 from sklearn.neural_network import MLPClassifier   # <-- add this import
@@ -656,7 +656,7 @@ print(df_ablation)
 df_ablation.to_csv("data/results/ablation_study.csv")
 
 
-#5.6 Confusion Matrix 
+#5.4 Confusion Matrix 
 import matplotlib.pyplot as plt
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
@@ -676,13 +676,12 @@ plt.savefig("figures/confusion_matrix.png", dpi=180, bbox_inches="tight")
 plt.show()
 df_ablation.to_csv("data/results/ablation_study.csv")
 
-#5.6 - One-vs-Rest Plots and ROC Curves
+#5.5 - One-vs-Rest Plots and ROC Curves
 # To visualize the performance of the multi-class classification models. These matrices provide insights into how well each class (subtype) is predicted, highlighting areas where the model may be misclassifying samples. By examining these matrices, we can identify specific subtypes that may require further investigation or model refinement.
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 from sklearn.model_selection import cross_val_predict
 
 rf_baseline = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
@@ -704,7 +703,6 @@ y_true_bin = label_binarize(labels, classes=np.arange(n_classes))
 from sklearn.metrics import roc_curve, auc
 
 fpr, tpr, roc_auc = {}, {}, {}
-
 for i in range(n_classes):
     fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], y_proba[:, i])
     roc_auc[i] = auc(fpr[i], tpr[i])
@@ -732,7 +730,6 @@ plt.savefig("figures/roc_ovr.png", dpi=180, bbox_inches="tight")
 plt.savefig("ROC_AUC.png", dpi=300, bbox_inches="tight")
 plt.close()
 
-
 all_fpr = np.unique(np.concatenate([fpr[i] for i in range(n_classes)]))
 mean_tpr = np.zeros_like(all_fpr)
 
@@ -758,7 +755,7 @@ plt.tight_layout()
 plt.savefig("figures/roc_macro.png", dpi=300, bbox_inches="tight")
 plt.close()
 
-#Step 6 Reproducability - All results and figures must be saved for reproducibility and further analysis. This includes saving processed datasets, model embeddings, performance metrics, clustering assignments, and visualizations. By organizing and storing these outputs, we ensure that the analysis can be revisited, validated, and extended in future research. The seeding function ensures that every time the code is run, identical results are produced.
+#5.6 Reproducability - All results and figures must be saved for reproducibility and further analysis. This includes saving processed datasets, model embeddings, performance metrics, clustering assignments, and visualizations. By organizing and storing these outputs, we ensure that the analysis can be revisited, validated, and extended in future research. The seeding function ensures that every time the code is run, identical results are produced.
 import random, os, numpy as np, torch
 
 def set_seeds(seed=42):
